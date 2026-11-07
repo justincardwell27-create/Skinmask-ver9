@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skin Mask Mobile V9</title>
+<style>
+:root{color-scheme:dark;--bg:#0f1520;--panel:#1b2433;--line:#3d4e68;--txt:#eff3fb;--muted:#b8c2d6;--accent:#6d86ff;--btn:#313f58;--btn2:#435476}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:auto;padding:14px}
+h1{margin:.2rem 0;font-size:1.5rem} p{color:var(--muted);line-height:1.45}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1 1 0}
+button,.pick{border:1px solid #61708f;background:var(--btn);color:#fff;border-radius:12px;padding:12px 14px;font-size:1rem;min-height:46px}
+button.primary{background:var(--accent);border-color:var(--accent);font-weight:700}
+button.active{background:var(--btn2);outline:2px solid #8ea0ff}
+button:disabled{opacity:.55}
+label.pick{display:block;text-align:center;font-weight:700}
+input[type=file]{display:none}
+input[type=range]{width:100%}
+.small{font-size:.92rem}
+.note{border-left:4px solid #f0c35b;padding-left:10px}
+canvas{width:100%;display:block;border-radius:12px;background:#0a0d13;max-height:70vh;touch-action:none}
+.inline{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.inline label{display:flex;align-items:center;gap:6px}
+#editor{display:none}
+#status{min-height:1.3rem}
+#noticeToast{position:fixed;z-index:60;max-width:min(82vw,330px);background:#26090e;color:#ff8a94;border:2px solid #df405b;box-shadow:0 8px 26px #000b;border-radius:8px;padding:16px 38px 16px 16px;font-weight:900;letter-spacing:.04em;pointer-events:auto;display:none}
+#noticeToast button{position:absolute;right:3px;top:3px;min-height:30px;padding:2px 9px;background:#4c171f;border:0}
+#noticeShade{display:none;position:fixed;inset:0;z-index:90;background:#000b;align-items:center;justify-content:center;padding:20px}
+#noticeDialog{background:#240d15;color:#f8dce1;border:2px solid #d14b59;border-radius:14px;padding:22px;max-width:410px;width:100%;box-shadow:0 10px 48px #000d}
+#noticeDialog h2{color:#ff7181;overflow-wrap:anywhere;font-size:1.45rem}
+#noticeDialog p{color:#f1cbd1}
+#noticeDialog button{width:100%;background:#783140}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Skin Mask Mobile V9</h1>
+  <p>Automatic censorship with full-character mode, eye coverage, feathering, corruption, and optional horror pop-ups. No CDN imports.</p>
+
+  <div class="panel">
+    <label class="pick" for="file">Choose an image</label>
+    <input id="file" type="file" accept="image/png,image/jpeg,image/webp">
+    <p class="small">Runs in your browser. Uses offline illustration-aware detection and optional built-in browser face detection. This is not a trained character-segmentation AI model.</p>
+  </div>
+
+  <div id="editor">
+    <div class="panel">
+      <canvas id="view"></canvas>
+      <p id="status"></p>
+      <div class="row">
+        <button id="auto" class="primary">Detect and censor automatically</button>
+        <button id="original">Show original</button>
+      </div>
+      <div class="row">
+        <button id="undo">↶ Undo</button>
+        <button id="redo">↷ Redo</button>
+        <button id="clear">Clear image…</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0">1. Automatic detection</h3>
+      <div class="inline" id="modeGroup">
+        <label><input type="radio" name="coverage" id="modeSkin" checked> Skin &amp; face</label>
+        <label><input type="radio" name="coverage" id="modeFull"> Full character (clothes, hair, accessories)</label>
+      </div>
+      <p class="small note">Full-character mode estimates the foreground from image boundaries and skin anchors; it is an experimental background-removal heuristic, not a trained AI model. Complex scenery may be included, and low-contrast characters may be missed. Review before exporting.</p>
+      <div class="inline">
+        <label><input type="checkbox" id="face" checked> Face</label>
+        <label><input type="checkbox" id="skin" checked> Body skin</label>
+        <label><input type="checkbox" id="art" checked> Illustration mode</label>
+      </div>
+      <label><input type="checkbox" id="eyes" checked> Prioritize covering eyes within detected faces</label>
+      <label>Coverage expansion: <span id="expandv">18</span> px</label>
+      <input id="expand" type="range" min="0" max="60" value="18">
+      <label>Detection aggressiveness: <span id="aggrv">35</span></label>
+      <input id="aggr" type="range" min="0" max="100" value="35">
+      <p class="small note">Foreground-aware filtering attempts to exclude plain backgrounds and implausibly large warm-colored objects. Hats, tails, clothing, and unusual palettes may still cause errors; this is not trained AI character recognition.</p>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0">2. Optional correction</h3>
+      <div class="row" id="tools">
+        <button data-tool="none" class="active">No editing</button>
+        <button data-tool="add">Censor brush</button>
+        <button data-tool="erase">Restore brush</button>
+      </div>
+      <label>Brush radius: <span id="brushv">26</span> px</label>
+      <input id="brush" type="range" min="4" max="100" value="26">
+      <p class="small">Manual tools are just for fixing misses. Automatic censoring remains the default.</p>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0">3. Effect</h3>
+      <div class="row" id="effects">
+        <button data-effect="mosaic" class="active">Mosaic</button>
+        <button data-effect="blur">Blur</button>
+        <button data-effect="static">TV Static</button>
+        <button data-effect="corruption">Corruption</button>
+      </div>
+      <p class="small">Corruption creates sharp black-and-white posterization with neon cyan, magenta and red artifacts, inspired by the V7 0 px glitch you showed.</p>
+      <div class="inline">
+        <label><input type="checkbox" id="haunt"> Glitch-horror overlay</label>
+      </div>
+      <p class="small">Optional harsh, fictional subject-classification stamps such as PATHETIC, WORTHLESS SUBJECT, REJECTED, TOTAL FAILURE and DEFECTIVE SUBJECT. The messages refer to the fictional image subject, not the person using the app.</p>
+      <h3 style="margin-bottom:8px">4. On-screen horror notifications</h3>
+      <label><input type="checkbox" id="notices"> Enable random on-screen warnings and pop-ups</label>
+      <p class="small">Opt-in only. The messages refer to the fictional image or character, not to the person using this app. No flashing animations. Pop-ups are always dismissible.</p>
+      <label>Harshness: <span id="harshv">Harsh</span></label>
+      <input type="range" id="harsh" min="1" max="3" step="1" value="2">
+      <label>Frequency: <span id="freqv">Occasional</span></label>
+      <input type="range" id="freq" min="1" max="3" step="1" value="2">
+      <button id="testNotice">Preview a notification</button>
+      <label>Mask feathering: <span id="featherv">6</span> px</label>
+      <input id="feather" type="range" min="0" max="20" value="6">
+      <label>Strength: <span id="strengthv">72</span></label>
+      <input id="strength" type="range" min="5" max="100" value="72">
+      <div class="row">
+        <button id="maskbtn">Show mask: Off</button>
+        <button id="save" class="primary">Save censored PNG</button>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="noticeToast" role="status"><span id="toastText"></span><button id="toastClose" aria-label="Dismiss warning">×</button></div>
+<div id="noticeShade" role="presentation"><section id="noticeDialog" role="dialog" aria-modal="true" aria-labelledby="noticeTitle"><h2 id="noticeTitle">Warning</h2><p id="noticeText"></p><button id="noticeDismiss">Dismiss and continue</button></section></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const view=$('view'), ctx=view.getContext('2d',{willReadFrequently:true});
+let source=null, mask=null, faceMask=null, bodyMask=null;
+let history=[], future=[];
+let showOriginal=false, showMask=false;
+let tool='none', effect='mosaic';
+let overlayIndex=0;
+let fullMask=null, noticeTimer=null, noticeCount=0, noticeWasEnabled=false;
+let drawing=false, lastPoint=null;
+let faceDetector=null;
+
+function status(t){$('status').textContent=t}
+function buttons(){ $('undo').disabled=!history.length; $('redo').disabled=!future.length; }
+function cloneMask(m){ return m ? new Uint8Array(m) : null; }
+function pushState(){ if(!mask) return; history.push(cloneMask(mask)); if(history.length>20) history.shift(); future=[]; buttons(); }
+function setMask(m){ mask=cloneMask(m); render(); buttons(); }
+
+function resetEditor(){
+  source=null; mask=null; faceMask=null; bodyMask=null; history=[]; future=[];
+  showOriginal=false; showMask=false; tool='none'; effect='mosaic';
+  $('haunt').checked=false; overlayIndex=0;
+  $('modeSkin').checked=true; $('modeFull').checked=false; fullMask=null;
+  $('notices').checked=false; stopNotices(); $('harsh').value=2; $('freq').value=2; $('harshv').textContent='Harsh'; $('freqv').textContent='Occasional';
+  $('editor').style.display='none'; $('file').value='';
+  ctx.clearRect(0,0,view.width,view.height);
+  $('face').checked=true; $('skin').checked=true; $('art').checked=true; $('eyes').checked=true;
+  $('expand').value=18; $('expandv').textContent='18';
+  $('aggr').value=35; $('aggrv').textContent='35';
+  $('brush').value=26; $('brushv').textContent='26';
+  $('strength').value=72; $('strengthv').textContent='72'; $('feather').value=6; $('featherv').textContent='6';
+  $('original').textContent='Show original';
+  $('maskbtn').textContent='Show mask: Off';
+  for(const b of $('tools').querySelectorAll('button')) b.classList.toggle('active', b.dataset.tool==='none');
+  for(const b of $('effects').querySelectorAll('button')) b.classList.toggle('active', b.dataset.effect==='mosaic');
+  buttons(); status('');
+}
+
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+function pointFromEvent(e){
+  const r=view.getBoundingClientRect();
+  return {
+    x: clamp(Math.round((e.clientX-r.left)*view.width/r.width),0,view.width-1),
+    y: clamp(Math.round((e.clientY-r.top)*view.height/r.height),0,view.height-1)
+  };
+}
+
+function dilate(bin,w,h,rad){
+  if(rad<=0) return bin;
+  let cur=bin.slice();
+  for(let t=0;t<rad;t++){
+    const next=cur.slice();
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const i=y*w+x;
+        if(cur[i]) continue;
+        if((x>0&&cur[i-1])||(x<w-1&&cur[i+1])||(y>0&&cur[i-w])||(y<h-1&&cur[i+w])) next[i]=255;
+      }
+    }
+    cur=next;
+  }
+  return cur;
+}
+
+function detectWarmMask(img,w,h){
+  const out=new Uint8Array(w*h);
+  const artMode=$('art').checked;
+  const aggr=+$('aggr').value;
+  for(let i=0;i<w*h;i++){
+    const r=img[i*4], g=img[i*4+1], b=img[i*4+2];
+    const max=Math.max(r,g,b), min=Math.min(r,g,b), diff=max-min;
+    const cb=128 - 0.168736*r - 0.331264*g + 0.5*b;
+    const cr=128 + 0.5*r - 0.418688*g - 0.081312*b;
+
+    let photo = r>55 && g>28 && b>18 && diff>14 && r>g*1.02 && r>b*1.05 && cb>77 && cb<135 && cr>133 && cr<178;
+    let art   = artMode && r>50 && g>28 && b>18 && diff>8 && cb>70 && cb<150 && cr>125 && cr<190 && r>=g*0.86 && r>=b*0.95;
+    if(aggr<40){ art = art && diff>10; }
+    if(aggr>65){ photo = photo || (r>48&&g>22&&b>15&&cb>72&&cb<145&&cr>128&&cr<187); }
+    out[i] = (photo||art) ? 255 : 0;
+  }
+  return out;
+}
+
+function connectedComponents(bin,w,h){
+  const seen=new Uint8Array(w*h), comps=[], stack=[];
+  for(let i=0;i<w*h;i++){
+    if(!bin[i]||seen[i]) continue;
+    seen[i]=1; stack.push(i);
+    let area=0, minx=w, miny=h, maxx=0, maxy=0, sumx=0, sumy=0, touchesEdge=false;
+    while(stack.length){
+      const v=stack.pop(); area++;
+      const x=v%w, y=(v/w)|0; sumx+=x; sumy+=y;
+      if(x<minx)minx=x; if(y<miny)miny=y; if(x>maxx)maxx=x; if(y>maxy)maxy=y;
+      if(x===0||y===0||x===w-1||y===h-1) touchesEdge=true;
+      const nbs=[x>0?v-1:-1, x<w-1?v+1:-1, y>0?v-w:-1, y<h-1?v+w:-1];
+      for(const n of nbs){ if(n>=0 && bin[n] && !seen[n]){ seen[n]=1; stack.push(n); } }
+    }
+    comps.push({
+      area, minx, miny, maxx, maxy,
+      cx: sumx/area, cy: sumy/area,
+      touchesEdge
+    });
+  }
+  return comps;
+}
+
+async function getFaceBoxes(){
+  try{
+    if('FaceDetector' in window){
+      if(!faceDetector) faceDetector=new FaceDetector({fastMode:true,maxDetectedFaces:3});
+      const faces=await faceDetector.detect(view);
+      return faces.map(f=>f.boundingBox);
+    }
+  }catch(e){}
+  return [];
+}
+
+function boxEllipseMask(w,h,box,expand){
+  const m=new Uint8Array(w*h);
+  const cx=box.x + box.width/2, cy=box.y + box.height/2;
+  const rx=Math.max(8, box.width/2 + expand);
+  const ry=Math.max(8, box.height/2 + expand*1.15);
+  const xmin=Math.max(0, Math.floor(cx-rx)), xmax=Math.min(w-1, Math.ceil(cx+rx));
+  const ymin=Math.max(0, Math.floor(cy-ry)), ymax=Math.min(h-1, Math.ceil(cy+ry));
+  for(let y=ymin;y<=ymax;y++){
+    for(let x=xmin;x<=xmax;x++){
+      const dx=(x-cx)/rx, dy=(y-cy)/ry;
+      if(dx*dx + dy*dy <= 1) m[y*w+x]=255;
+    }
+  }
+  return m;
+}
+
+function composeMask(){
+  if(!source) return;
+  const w=view.width, h=view.height;
+  const m=new Uint8Array(w*h);
+  const useFace=$('face').checked, useSkin=$('skin').checked;
+  if($('modeFull').checked && fullMask){ mask=fullMask.slice(); render(); return; }
+  for(let i=0;i<w*h;i++){
+    if((useFace && faceMask && faceMask[i]) || (useSkin && bodyMask && bodyMask[i])) m[i]=255;
+  }
+  mask=m;
+  render();
+}
+
+
+// A lightweight background exclusion pass. Grow low-color-distance areas from
+// the edges; it helps remove uniform scenery but is not semantic segmentation.
+function likelyBackground(img,w,h){
+  const bg=new Uint8Array(w*h), seen=new Uint8Array(w*h);
+  const corners=[0,w-1,(h-1)*w,w*h-1];
+  const samples=corners.map(i=>[img.data[i*4],img.data[i*4+1],img.data[i*4+2]]);
+  // Only grow from corner regions if corners agree reasonably on their colors.
+  let similarPairs=0;
+  for(let i=0;i<4;i++)for(let j=i+1;j<4;j++){
+    if(Math.hypot(...samples[i].map((v,c)=>v-samples[j][c]))<66) similarPairs++;
+  }
+  if(similarPairs<2) return bg;
+  const queue=new Int32Array(w*h),tol=42;
+  // Bound work using head/tail pointers (each pixel enters at most once).
+  let head=0,tail=0;
+  function enqueue(i){if(seen[i])return;seen[i]=1;queue[tail++]=i;}
+  for(const i of corners)enqueue(i);
+  while(head<tail){
+    const v=queue[head++],k=v*4;
+    let best=1e9;
+    for(const c of samples){
+      const d=Math.hypot(img.data[k]-c[0],img.data[k+1]-c[1],img.data[k+2]-c[2]);
+      if(d<best)best=d;
+    }
+    if(best>tol)continue;
+    bg[v]=255;
+    const x=v%w,y=(v/w)|0;
+    for(const n of [x>0?v-1:-1,x<w-1?v+1:-1,y>0?v-w:-1,y<h-1?v+w:-1]){
+      if(n>=0&&!seen[n])enqueue(n);
+    }
+  }
+  return bg;
+}
+
+function addEyeBand(m,w,h,box){
+  const x1=clamp(Math.floor(box.x+box.width*.12),0,w-1);
+  const x2=clamp(Math.ceil(box.x+box.width*.88),0,w-1);
+  const y1=clamp(Math.floor(box.y+box.height*.19),0,h-1);
+  const y2=clamp(Math.ceil(box.y+box.height*.57),0,h-1);
+  for(let y=y1;y<=y2;y++)for(let x=x1;x<=x2;x++)m[y*w+x]=255;
+}
+
+// Box smoothing of the mask, used only for opacity at censor borders.
+// This avoids a hard binary seam while leaving the saved source unchanged.
+function featherAlpha(binary,w,h,radius){
+  if(!radius)return binary;
+  const tmp=new Float32Array(w*h),out=new Float32Array(w*h);
+  const r=radius;
+  for(let y=0;y<h;y++){
+    let sum=0;
+    for(let x=0;x<Math.min(w,r+1);x++)sum+=binary[y*w+x]/255;
+    for(let x=0;x<w;x++){
+      if(x>0){const add=x+r,remove=x-r-1;if(add<w)sum+=binary[y*w+add]/255;if(remove>=0)sum-=binary[y*w+remove]/255;}
+      const cnt=Math.min(w-1,x+r)-Math.max(0,x-r)+1;
+      tmp[y*w+x]=sum/cnt;
+    }
+  }
+  for(let x=0;x<w;x++){
+    let sum=0;
+    for(let y=0;y<Math.min(h,r+1);y++)sum+=tmp[y*w+x];
+    for(let y=0;y<h;y++){
+      if(y>0){const add=y+r,remove=y-r-1;if(add<h)sum+=tmp[add*w+x];if(remove>=0)sum-=tmp[remove*w+x];}
+      const cnt=Math.min(h-1,y+r)-Math.max(0,y-r)+1;
+      out[y*w+x]=clamp(sum/cnt,0,1);
+    }
+  }
+  return out;
+}
+
+
+// Estimate the entire foreground using color-adaptive flood fill from every
+// boundary pixel at a reduced resolution; no network calls or image uploads.
+// Contrast with a real person/character segmentation network: this is heuristic.
+function estimateFullCharacter(img,w,h,anchor){
+  const scale=Math.min(1,340/Math.max(w,h));
+  const sw=Math.max(16,Math.round(w*scale)), sh=Math.max(16,Math.round(h*scale));
+  const cv=document.createElement('canvas');cv.width=sw;cv.height=sh;
+  const cc=cv.getContext('2d',{willReadFrequently:true}),orig=document.createElement('canvas');
+  orig.width=w;orig.height=h;orig.getContext('2d').putImageData(img,0,0);
+  cc.drawImage(orig,0,0,sw,sh);
+  const px=cc.getImageData(0,0,sw,sh).data,n=sw*sh;
+  const bg=new Uint8Array(n),seen=new Uint8Array(n),queue=new Int32Array(n);let head=0,tail=0;
+  const corners=[0,sw-1,(sh-1)*sw,n-1];
+  const col=i=>[px[i*4],px[i*4+1],px[i*4+2]];
+  const refs=corners.map(col);
+  const dist=(i,c)=>Math.sqrt((px[i*4]-c[0])**2+(px[i*4+1]-c[1])**2+(px[i*4+2]-c[2])**2);
+  const similar=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+  const cohesive=refs.some((a,i)=>refs.some((b,j)=>j>i&&similar(a,b)<90));
+  // For busy backgrounds, avoid selecting almost all pixels as foreground.
+  if(!cohesive)return new Uint8Array(w*h);
+  function enqueue(i){if(!seen[i]){seen[i]=1;queue[tail++]=i;}}
+  for(let x=0;x<sw;x++){enqueue(x);enqueue((sh-1)*sw+x)}
+  for(let y=0;y<sh;y++){enqueue(y*sw);enqueue(y*sw+sw-1)}
+  while(head<tail){let v=queue[head++],x=v%sw,y=(v/sw)|0;let d=Infinity;
+    for(const c of refs)d=Math.min(d,dist(v,c));
+    if(d>48)continue; bg[v]=255;
+    const ns=[x>0?v-1:-1,x<sw-1?v+1:-1,y>0?v-sw:-1,y<sh-1?v+sw:-1];
+    for(const k of ns)if(k>=0)enqueue(k);
+  }
+  const fg=new Uint8Array(n);for(let i=0;i<n;i++)fg[i]=bg[i]?0:255;
+  const ccItems=connectedComponents(fg,sw,sh);
+  // Keep central or skin-anchored nonbackground connected regions. Reject tiny
+  // fragments and implausibly broad selection (>85% of the total picture).
+  let best=null,bestScore=-1;
+  for(const c of ccItems){const frac=c.area/n;if(frac<.015||frac>.86)continue;
+    const center=Math.hypot((c.cx-sw*.5)/sw,(c.cy-sh*.5)/sh);
+    let score=c.area*(1.15-Math.min(1,center));
+    if(c.touchesEdge)score*=.7;
+    if(score>bestScore){best=c;bestScore=score;}
+  }
+  if(!best)return new Uint8Array(w*h);
+  // Preserve all connected pixels belonging to the chosen component.
+  let seed=-1;
+  const cx=Math.round(best.cx),cy=Math.round(best.cy);
+  for(let r=0;r<Math.max(sw,sh)&&seed<0;r++){
+    for(let yy=Math.max(0,cy-r);yy<=Math.min(sh-1,cy+r);yy++){
+      for(let xx=Math.max(0,cx-r);xx<=Math.min(sw-1,cx+r);xx++)if(fg[yy*sw+xx]){seed=yy*sw+xx;break;}
+      if(seed>=0)break;
+    }
+  }
+  if(seed<0)return new Uint8Array(w*h);
+  const kept=new Uint8Array(n),q=new Int32Array(n);let a=0,b=0;q[b++]=seed;kept[seed]=255;
+  while(a<b){let v=q[a++],x=v%sw,y=(v/sw)|0;for(const k of [x>0?v-1:-1,x<sw-1?v+1:-1,y>0?v-sw:-1,y<sh-1?v+sw:-1])if(k>=0&&fg[k]&&!kept[k]){kept[k]=255;q[b++]=k;}}
+  const output=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)output[y*w+x]=kept[Math.min(sh-1,Math.floor(y*sh/h))*sw+Math.min(sw-1,Math.floor(x*sw/w))];
+  return output;
+}
+async function autoDetect(){
+  if(!source) return;
+  status('Detecting regions…');
+  $('auto').disabled=true;
+  try{
+    const w=view.width, h=view.height, img=source.data;
+    const warm=detectWarmMask(img,w,h);
+    const background=likelyBackground(source,w,h);
+    // Remove likely uniform backgrounds before region selection.
+    for(let i=0;i<warm.length;i++)if(background[i])warm[i]=0;
+    const comps=connectedComponents(warm,w,h);
+    const faces=await getFaceBoxes();
+    const expand = Math.round(+$('expand').value/6);
+    const kept = new Uint8Array(w*h);
+
+    // Score components so the detector is conservative instead of censoring huge warm-toned backgrounds.
+    const centerX=w/2, centerY=h/2;
+    const faceCenters=faces.map(f=>({x:f.x+f.width/2,y:f.y+f.height/2}));
+    const sorted = comps.map((c,idx)=>{
+      const areaFrac=c.area/(w*h);
+      let score = c.area;
+      const distCenter=Math.hypot((c.cx-centerX)/w,(c.cy-centerY)/h);
+      score *= (1.25 - Math.min(.9, distCenter));
+      if(c.touchesEdge) score *= .72;
+      if(areaFrac>.22) score *= .03; // strong rejection of giant false positives
+      if(c.touchesEdge && areaFrac>.075) score *= .13;
+      const bw=c.maxx-c.minx+1,bh=c.maxy-c.miny+1;
+      if(bw>w*.9 || bh>h*.9)score*=.08;
+      if(areaFrac<0.0008) score *= .2; // kill tiny speckles
+      if(faceCenters.length){
+        let best=999;
+        for(const fc of faceCenters) best=Math.min(best, Math.hypot(c.cx-fc.x,c.cy-fc.y));
+        score *= (best < Math.max(w,h)*0.28 ? 2.1 : (best < Math.max(w,h)*0.45 ? 1.25 : 0.8));
+      }
+      if(c.cy < h*0.08 || c.cy > h*0.97) score *= .7;
+      return {c, idx, score};
+    }).sort((a,b)=>b.score-a.score);
+
+    // Re-scan to rebuild component map and keep only top likely regions.
+    const compIds=new Int32Array(w*h).fill(-1), seen=new Uint8Array(w*h), stack=[];
+    let cid=0;
+    for(let i=0;i<w*h;i++){
+      if(!warm[i]||seen[i]) continue;
+      seen[i]=1; stack.push(i);
+      while(stack.length){
+        const v=stack.pop(); compIds[v]=cid;
+        const x=v%w,y=(v/w)|0;
+        const nbs=[x>0?v-1:-1,x<w-1?v+1:-1,y>0?v-w:-1,y<h-1?v+w:-1];
+        for(const n of nbs){ if(n>=0&&warm[n]&&!seen[n]){ seen[n]=1; stack.push(n); } }
+      }
+      cid++;
+    }
+
+    const keepCount = Math.min(5, Math.max(2, sorted.length));
+    const keepSet = new Set(sorted.slice(0,keepCount).filter(s=>s.score > Math.max(20,w*h*.0008)).map(s=>s.idx));
+    for(let i=0;i<compIds.length;i++) if(keepSet.has(compIds[i])) kept[i]=255;
+
+    faceMask = new Uint8Array(w*h);
+    if(faces.length){
+      for(const fb of faces){
+        const em = boxEllipseMask(w,h,fb,Math.round(+$('expand').value*.6));
+        for(let i=0;i<em.length;i++) if(em[i]) faceMask[i]=255;
+        if($('eyes').checked) addEyeBand(faceMask,w,h,fb);
+      }
+    }else{
+      // If no browser face detection, estimate face region from upper central likely-skin components.
+      for(const s of sorted.slice(0,2)){
+        const c=s.c;
+        const ratio=(c.maxx-c.minx+1)/Math.max(1,(c.maxy-c.miny+1));
+        const areaFrac=c.area/(w*h);
+        if(c.cy < h*0.53 && c.cx>w*.12 && c.cx<w*.88 && ratio>.48 && ratio<1.95 && areaFrac>.001 && areaFrac<.17 && !c.touchesEdge){
+          const est = boxEllipseMask(w,h,{
+            x:c.minx, y:c.miny,
+            width: Math.max(24, c.maxx-c.minx+1),
+            height: Math.max(28, c.maxy-c.miny+1)
+          }, Math.round(+$('expand').value*.45));
+          for(let i=0;i<est.length;i++) if(est[i]) faceMask[i]=255;
+          if($('eyes').checked) addEyeBand(faceMask,w,h,{
+            x:c.minx,y:c.miny,width:Math.max(24,c.maxx-c.minx+1),height:Math.max(28,c.maxy-c.miny+1)
+          });
+        }
+      }
+    }
+
+    // Expand warm mask a little and remove face from body mask.
+    const body = dilate(kept,w,h,expand);
+    bodyMask = new Uint8Array(w*h);
+    for(let i=0;i<w*h;i++) if(body[i] && !faceMask[i]) bodyMask[i]=255;
+
+    // Expand face slightly more to reduce missed facial areas.
+    faceMask = dilate(faceMask,w,h,Math.round(+$('expand').value/8));
+
+    // Full-character mode estimates a single foreground region, including clothes.
+    fullMask = estimateFullCharacter(source,w,h);
+    // A fresh detection is a normal edit: save the PREVIOUS mask for Undo.
+    // No history reset here; Redo is cleared only when a new edit is made.
+    pushState();
+    composeMask();
+
+    const facePx=faceMask.reduce((a,v)=>a+(v?1:0),0);
+    const bodyPx=bodyMask.reduce((a,v)=>a+(v?1:0),0);
+    status(`Detection complete. Face: ${facePx.toLocaleString()} pixels · Body: ${bodyPx.toLocaleString()} pixels. ${faces.length?'Browser face detector helped identify the eyes.':'No browser face detector available; face/eye estimates may be unreliable.'} Review all covered areas before saving.`);
+  }catch(err){
+    status('Automatic detection failed: '+err.message);
+  }finally{
+    $('auto').disabled=false;
+  }
+}
+
+function originalCanvas(){
+  const cv=document.createElement('canvas'); cv.width=view.width;cv.height=view.height;
+  cv.getContext('2d').putImageData(source,0,0); return cv;
+}
+function render(){
+  if(!source) return;
+  ctx.putImageData(source,0,0);
+  if(showOriginal || !mask) return;
+
+  const w=view.width, h=view.height;
+  const fx=document.createElement('canvas'); fx.width=w; fx.height=h;
+  const fctx=fx.getContext('2d',{willReadFrequently:true});
+
+  // base source
+  fctx.putImageData(source,0,0);
+
+  if(effect==='mosaic'){
+    const blocks = Math.max(4, Math.round(4 + (+$('strength').value)*0.42));
+    const sw=Math.max(1, Math.ceil(w/blocks)), sh=Math.max(1, Math.ceil(h/blocks));
+    const tiny=document.createElement('canvas'); tiny.width=sw; tiny.height=sh;
+    const tctx=tiny.getContext('2d');
+    tctx.imageSmoothingEnabled=true;
+    tctx.drawImage(originalCanvas(),0,0,sw,sh);
+    fctx.clearRect(0,0,w,h);
+    fctx.imageSmoothingEnabled=false;
+    fctx.drawImage(tiny,0,0,w,h);
+  }else if(effect==='blur'){
+    fctx.filter = `blur(${Math.max(3, Math.round(+$('strength').value*0.34))}px)`;
+    fctx.drawImage(originalCanvas(),0,0);
+    fctx.filter = 'none';
+  }else if(effect==='corruption'){
+    // Deterministic pixel corruption: neon edge artifacts + void blacks.
+    // Sample the ORIGINAL image, never an already effected preview.
+    const pixels=source.data, altered=fctx.createImageData(w,h);
+    const amount=+$('strength').value/100;
+    const edgeOffset=Math.max(1,Math.floor(2+amount*7));
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const i=y*w+x,k=i*4;
+      const r=pixels[k],g=pixels[k+1],b=pixels[k+2];
+      const light=.299*r+.587*g+.114*b;
+      const j=(y*w+Math.min(w-1,x+edgeOffset))*4;
+      const r2=pixels[j],g2=pixels[j+1],b2=pixels[j+2];
+      const shifted=.299*r2+.587*g2+.114*b2;
+      const edge=Math.abs(light-shifted);
+      const noise=((x*73856093 ^ y*19349663 ^ 2654435761)>>>0)%101;
+      let R,G,B;
+      if(light<56+amount*40){R=0;G=0;B=0;}
+      else if(light>196-amount*18){R=252;G=252;B=250;}
+      else if(edge>18+amount*8){R=0;G=255;B=255;}
+      else if(noise<amount*17){R=255;G=15;B=110;}
+      else if(noise<amount*28){R=255;G=20;B=15;}
+      else if(noise<amount*38){R=0;G=245;B=255;}
+      else if(light<122){R=0;G=0;B=0;}
+      else {R=255;G=255;B=255;}
+      altered.data[k]=R;altered.data[k+1]=G;altered.data[k+2]=B;altered.data[k+3]=255;
+    }
+    fctx.putImageData(altered,0,0);
+  }else{
+    const noise=fctx.createImageData(w,h);
+    for(let i=0;i<w*h;i++){
+      // Stable noise, so undo/redraw doesn't reshuffle randomly.
+      const x=i%w,y=(i/w)|0;
+      const v=((x*374761393 ^ y*668265263 ^ 918221)>>>0)%256;
+      noise.data[i*4]=v; noise.data[i*4+1]=v; noise.data[i*4+2]=v; noise.data[i*4+3]=255;
+    }
+    fctx.putImageData(noise,0,0);
+  }
+
+  const base=ctx.getImageData(0,0,w,h), effected=fctx.getImageData(0,0,w,h);
+  const opacity=featherAlpha(mask,w,h,+$('feather').value);
+  for(let i=0;i<mask.length;i++){
+    const k=i*4, a=opacity[i];
+    if(a>0){
+      base.data[k]=Math.round(base.data[k]*(1-a)+effected.data[k]*a);
+      base.data[k+1]=Math.round(base.data[k+1]*(1-a)+effected.data[k+1]*a);
+      base.data[k+2]=Math.round(base.data[k+2]*(1-a)+effected.data[k+2]*a);
+    }
+    if(showMask && mask[i]){
+      base.data[k]=Math.round(base.data[k]*0.45 + 120);
+      base.data[k+1]=Math.round(base.data[k+1]*0.45);
+      base.data[k+2]=Math.round(base.data[k+2]*0.45);
+    }
+  }
+  ctx.putImageData(base,0,0);
+  if($('haunt').checked){
+    const stamps=['PATHETIC','WORTHLESS','REJECTED','TOTAL FAILURE','LOSER','WHAT A JOKE','TRASH'];
+    const fontSize=Math.max(13,Math.round(w*.027));
+    ctx.save();ctx.font=`bold ${fontSize}px monospace`;
+    ctx.fillStyle='rgba(255,35,67,0.88)';
+    ctx.strokeStyle='rgba(0,0,0,0.86)';ctx.lineWidth=Math.max(2,fontSize*.18);
+    ctx.translate(Math.round(w*.07),Math.round(h*.14));
+    ctx.rotate(-.095);
+    const lines=[stamps[overlayIndex%stamps.length]];
+    lines.forEach((line,i)=>{ctx.strokeText(line,0,i*(fontSize*1.35));ctx.fillText(line,0,i*(fontSize*1.35));});
+    ctx.restore();
+  }
+}
+
+function applyDot(p,mode){
+  if(!mask) return;
+  const rad=+$('brush').value, w=view.width, h=view.height, r2=rad*rad;
+  for(let y=Math.max(0,p.y-rad); y<=Math.min(h-1,p.y+rad); y++){
+    for(let x=Math.max(0,p.x-rad); x<=Math.min(w-1,p.x+rad); x++){
+      if((x-p.x)*(x-p.x)+(y-p.y)*(y-p.y) <= r2){
+        mask[y*w+x] = mode==='add' ? 255 : 0;
+      }
+    }
+  }
+}
+
+function stroke(a,b,mode){
+  const steps=Math.max(1, Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/3));
+  for(let i=0;i<=steps;i++){
+    applyDot({
+      x: Math.round(a.x + (b.x-a.x)*i/steps),
+      y: Math.round(a.y + (b.y-a.y)*i/steps)
+    }, mode);
+  }
+  render();
+}
+
+$('file').addEventListener('change', async e=>{
+  const file=e.target.files && e.target.files[0];
+  if(!file) return;
+  try{
+    const bmp=await createImageBitmap(file);
+    const scale=Math.min(1, 1280/Math.max(bmp.width,bmp.height));
+    const w=Math.max(1, Math.round(bmp.width*scale));
+    const h=Math.max(1, Math.round(bmp.height*scale));
+    view.width=w; view.height=h;
+    ctx.clearRect(0,0,w,h);
+    ctx.drawImage(bmp,0,0,w,h);
+    source=ctx.getImageData(0,0,w,h);
+    mask=new Uint8Array(w*h);
+    history=[]; future=[]; buttons();
+    $('editor').style.display='block';
+    status('Image loaded. Tap “Detect and censor automatically.”');
+    autoDetect();
+  }catch(err){
+    status('Could not load image: '+err.message);
+  }
+});
+
+$('auto').onclick=autoDetect;
+$('face').onchange=()=>{ if(source && (faceMask||bodyMask)){pushState();composeMask();} };
+$('skin').onchange=()=>{ if(source && (faceMask||bodyMask)){pushState();composeMask();} };
+for(const id of ['modeFull','modeSkin'])$(id).onchange=()=>{if(source){pushState();composeMask();}};
+$('art').onchange=()=>{};
+$('expand').oninput=()=>{ $('expandv').textContent=$('expand').value; };
+$('aggr').oninput=()=>{ $('aggrv').textContent=$('aggr').value; };
+
+$('tools').onclick=e=>{
+  const b=e.target.closest('button[data-tool]');
+  if(!b) return;
+  tool=b.dataset.tool;
+  for(const x of $('tools').querySelectorAll('button')) x.classList.toggle('active', x===b);
+};
+$('brush').oninput=()=>{ $('brushv').textContent=$('brush').value; };
+
+$('effects').onclick=e=>{
+  const b=e.target.closest('button[data-effect]');
+  if(!b) return;
+  effect=b.dataset.effect;
+  for(const x of $('effects').querySelectorAll('button')) x.classList.toggle('active', x===b);
+  render();
+};
+$('strength').oninput=()=>{ $('strengthv').textContent=$('strength').value; render(); };
+$('feather').oninput=()=>{ $('featherv').textContent=$('feather').value; render(); };
+$('haunt').onchange=()=>{overlayIndex++;render();};
+$('eyes').onchange=()=>{if(source)autoDetect();};
+
+$('original').onclick=()=>{
+  showOriginal=!showOriginal;
+  $('original').textContent = showOriginal ? 'Show censored' : 'Show original';
+  render();
+};
+$('maskbtn').onclick=()=>{
+  showMask=!showMask;
+  $('maskbtn').textContent='Show mask: '+(showMask?'On':'Off');
+  render();
+};
+$('undo').onclick=()=>{
+  if(!history.length || !mask) return;
+  future.push(cloneMask(mask));
+  setMask(history.pop());
+};
+$('redo').onclick=()=>{
+  if(!future.length || !mask) return;
+  history.push(cloneMask(mask));
+  setMask(future.pop());
+};
+$('clear').onclick=()=>{
+  if(!source) return;
+  if(!confirm('Are you sure you want to clear this image? All edits and settings for this image will be lost.')) return;
+  resetEditor();
+};
+$('save').onclick=()=>{
+  if(!source) return;
+  const wasOriginal=showOriginal, wasMask=showMask;
+  showOriginal=false; showMask=false;
+  render();
+  view.toBlob(blob=>{
+    if(!blob) return;
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='skinmask-v9.png';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1200);
+  }, 'image/png');
+  showOriginal=wasOriginal; showMask=wasMask;
+  setTimeout(render, 80);
+};
+
+view.onpointerdown=e=>{
+  if(!source || tool==='none') return;
+  e.preventDefault();
+  drawing=true;
+  pushState();
+  lastPoint=pointFromEvent(e);
+  stroke(lastPoint,lastPoint,tool);
+  view.setPointerCapture?.(e.pointerId);
+};
+view.onpointermove=e=>{
+  if(!drawing || tool==='none') return;
+  const p=pointFromEvent(e);
+  stroke(lastPoint,p,tool);
+  lastPoint=p;
+};
+view.onpointerup=view.onpointercancel=()=>{
+  drawing=false; lastPoint=null;
+};
+
+
+const noticeText={
+  1:['REJECTED','FAILURE','PATHETIC','WHAT A JOKE','TRASH'],
+  2:['FUCKING PATHETIC','ABSOLUTE LOSER','WORTHLESS','PURE GARBAGE','WHAT THE HELL IS THIS','TOTAL FAILURE'],
+  3:['WHAT THE FUCK IS THIS IMAGE','FUCKING WORTHLESS','REJECTED. AGAIN.','ABSOLUTE FUCKING TRASH','COMPLETE FUCKING FAILURE','LOOK AT THIS PATHETIC MESS']
+};
+function messagePool(){const lv=+$('harsh').value;return [...noticeText[1],...(lv>=2?noticeText[2]:[]),...(lv>=3?noticeText[3]:[])];}
+function randomMessage(){let a=messagePool();return a[Math.floor(Math.random()*a.length)];}
+function hideToast(){ $('noticeToast').style.display='none'; }
+function closeNoticeDialog(){ $('noticeShade').style.display='none'; $('noticeDismiss').focus(); }
+function openNoticeDialog(title,message){
+  hideToast();$('noticeTitle').textContent=title;$('noticeText').textContent=message;
+  $('noticeShade').style.display='flex';$('noticeDismiss').focus();
+}
+function showNotice(forceModal=false){
+  if(!forceModal&&!$('notices').checked)return;
+  // Only one interruption at a time; all UI messages refer to fictional image.
+  if($('noticeShade').style.display==='flex')return;
+  const txt=randomMessage();noticeCount++;
+  if(forceModal || noticeCount%4===0){
+    openNoticeDialog(txt,'A harsh fictional-image warning. Dismiss this window to continue.');
+  }else{
+    $('toastText').textContent=txt;
+    const t=$('noticeToast');t.style.display='block';
+    const bw=Math.min(340,window.innerWidth*.82),bh=104;
+    t.style.left=Math.round(Math.random()*Math.max(0,innerWidth-bw-10)+5)+'px';
+    t.style.top=Math.round(Math.random()*Math.max(0,innerHeight-bh-30)+5)+'px';
+  }
+}
+function stopNotices(){if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null;}hideToast();$('noticeShade').style.display='none';noticeCount=0;}
+function scheduleNotice(){
+  if(noticeTimer!==null)clearTimeout(noticeTimer);
+  if(!$('notices').checked)return;
+  const ms=+$('freq').value===1?80000:+$('freq').value===2?42000:23000;
+  noticeTimer=setTimeout(()=>{noticeTimer=null;if($('notices').checked){showNotice();scheduleNotice()}},ms);
+}
+$('notices').onchange=()=>{
+  if($('notices').checked){
+    // First-time opt-in consent: clearly label the fictional target.
+    if(!noticeWasEnabled){
+      const yes=confirm('Enable hostile pop-ups? These insults refer to the fictional image/character, not you. Some pop-ups interrupt editing until dismissed. You can turn them off anytime.');
+      if(!yes){$('notices').checked=false;return;}
+      noticeWasEnabled=true;
+    }
+    scheduleNotice();
+  }else stopNotices();
+};
+$('harsh').oninput=()=>{$('harshv').textContent=['','Mild','Harsh','Brutal'][+$('harsh').value];};
+$('freq').oninput=()=>{$('freqv').textContent=['','Rare','Occasional','Frequent'][+$('freq').value];scheduleNotice();};
+$('testNotice').onclick=()=>showNotice(true);
+$('toastClose').onclick=hideToast;
+$('noticeDismiss').onclick=closeNoticeDialog;
+
+resetEditor();
+</script>
+</body>
+</html>
